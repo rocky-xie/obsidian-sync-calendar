@@ -5,6 +5,7 @@ import { gfSyncStatus$, gfNetStatus$ } from 'Syncs/StatusEnumerate';
 import { MainSynchronizer } from "Syncs/MainSynchronizer";
 import QueryInjector from 'Injector/QueryInjector';
 import { setDebugLogging } from 'lib/DebugLog';
+import { NETWORK_STATUS, SYNC_STATUS } from 'lib/Constants';
 
 
 // Remember to rename these classes and interfaces!
@@ -42,6 +43,8 @@ export default class SyncCalendarPlugin extends Plugin {
 
   private queryInjector: QueryInjector;
 
+  private subscriptions: { unsubscribe: () => void }[] = [];
+
   constructor(app: App, pluginManifest: PluginManifest) {
     super(app, pluginManifest);
   }
@@ -56,8 +59,8 @@ export default class SyncCalendarPlugin extends Plugin {
     this.netStatusItem = this.addStatusBarItem();
     this.syncStatusItem = this.addStatusBarItem();
 
-    gfNetStatus$.subscribe(newNetStatus => this.updateNetStatusItem(newNetStatus));
-    gfSyncStatus$.subscribe(newSyncStatus => this.updateSyncStatusItem(newSyncStatus));
+    this.subscriptions.push(gfNetStatus$.subscribe(newNetStatus => this.updateNetStatusItem(newNetStatus)));
+    this.subscriptions.push(gfSyncStatus$.subscribe(newSyncStatus => this.updateSyncStatusItem(newSyncStatus)));
 
     this.mainSync = new MainSynchronizer(this.app);
 
@@ -81,8 +84,6 @@ export default class SyncCalendarPlugin extends Plugin {
           'mannual'
         );
       });
-    ribbonIconEl.addClass('my-plugin-ribbon-class');
-
     // Add Commands
     this.addCommand({
       id: 'sync-google-calendar',
@@ -100,19 +101,24 @@ export default class SyncCalendarPlugin extends Plugin {
 
   }
 
-  onunload() { }
+  onunload() {
+    for (const sub of this.subscriptions) {
+      sub.unsubscribe();
+    }
+    this.subscriptions = [];
+  }
 
   private updateNetStatusItem(newNetStatus: NetworkStatus) {
     switch (newNetStatus) {
       case NetworkStatus.HEALTH:
-        this.netStatusItem.setText("Net: 🟢");
+        this.netStatusItem.setText(`Net: ${NETWORK_STATUS.HEALTHY}`);
         break;
       case NetworkStatus.CONNECTION_ERROR:
-        this.netStatusItem.setText("Net: 🔴");
+        this.netStatusItem.setText(`Net: ${NETWORK_STATUS.ERROR}`);
         break;
       case NetworkStatus.UNKOWN:
       default:
-        this.netStatusItem.setText("Net: ⚫️");
+        this.netStatusItem.setText(`Net: ${NETWORK_STATUS.UNKNOWN}`);
         break;
     }
   }
@@ -120,20 +126,20 @@ export default class SyncCalendarPlugin extends Plugin {
   private updateSyncStatusItem(newSyncStatus: SyncStatus) {
     switch (newSyncStatus) {
       case SyncStatus.UPLOAD:
-        this.syncStatusItem.setText("Sync: 🔼");
+        this.syncStatusItem.setText(`Sync: ${SYNC_STATUS.UPLOAD}`);
         break;
       case SyncStatus.DOWNLOAD:
-        this.syncStatusItem.setText("Sync: 🔽");
+        this.syncStatusItem.setText(`Sync: ${SYNC_STATUS.DOWNLOAD}`);
         break;
       case SyncStatus.FAILED_WARNING:
-        this.syncStatusItem.setText("Sync: 🆖");
+        this.syncStatusItem.setText(`Sync: ${SYNC_STATUS.FAILED}`);
         break;
       case SyncStatus.SUCCESS_WAITING:
-        this.syncStatusItem.setText("Sync: 🆗");
+        this.syncStatusItem.setText(`Sync: ${SYNC_STATUS.SUCCESS}`);
         break;
       case SyncStatus.UNKOWN:
       default:
-        this.syncStatusItem.setText("Sync: *️⃣");
+        this.syncStatusItem.setText(`Sync: ${SYNC_STATUS.UNKNOWN}`);
         break;
     }
   }
@@ -175,7 +181,7 @@ class SyncCalendarPluginSettingTab extends PluginSettingTab {
             }
             await this.plugin.saveSettings();
           })
-      ).controlEl.querySelector("input");
+      );
 
     new Setting(containerEl)
       .setName("Maximum events")
@@ -190,7 +196,7 @@ class SyncCalendarPluginSettingTab extends PluginSettingTab {
               await this.plugin.saveSettings();
             }
           })
-      ).controlEl.querySelector("input");
+      );
 
     this.createHeader("Render");
 
@@ -203,8 +209,7 @@ class SyncCalendarPluginSettingTab extends PluginSettingTab {
             this.plugin.settings.renderDate = value;
             await this.plugin.saveSettings();
           })
-      )
-      .controlEl.querySelector("input");
+      );
 
     new Setting(containerEl)
       .setName("Render tags")
@@ -215,8 +220,7 @@ class SyncCalendarPluginSettingTab extends PluginSettingTab {
             this.plugin.settings.renderTags = value;
             await this.plugin.saveSettings();
           })
-      )
-      .controlEl.querySelector("input");
+      );
 
     this.createHeader("Debug");
 
@@ -231,8 +235,7 @@ class SyncCalendarPluginSettingTab extends PluginSettingTab {
             setDebugLogging(value);
             await this.plugin.saveSettings();
           })
-      )
-      .controlEl.querySelector("input");
+      );
   }
 
   private createHeader(header_title: string, header_desc: string | null = null) {

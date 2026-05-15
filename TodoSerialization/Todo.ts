@@ -1,6 +1,7 @@
 import { debug } from 'lib/DebugLog';
+import { REG_DATETIME, REG_DATE, isDatetimeString, toGoogleDueISO, toGoogleCompletedISO } from 'lib/DateUtils';
 
-import type { calendar_v3 } from 'googleapis';
+import type { calendar_v3, tasks_v1 } from 'googleapis';
 
 export class Todo {
   public content: null | string | undefined;
@@ -25,6 +26,11 @@ export class Todo {
 
   public updated?: null | string | undefined;
 
+  // Google Tasks 相关字段
+  public taskId?: null | string;
+  public taskListId?: null | string;
+  public syncType?: 'event' | 'task';
+
   constructor({
     content,
     priority,
@@ -40,7 +46,10 @@ export class Todo {
     updated,
     calUId,
     eventId,
-    eventHtmlLink
+    eventHtmlLink,
+    taskId = undefined,
+    taskListId = undefined,
+    syncType = undefined
   }: {
     content: null | string | undefined;
     priority?: null | string | undefined;
@@ -57,6 +66,9 @@ export class Todo {
     calUId?: null | string | undefined;
     eventId?: null | string | undefined;
     eventHtmlLink?: null | string | undefined;
+    taskId?: null | string | undefined;
+    taskListId?: null | string | undefined;
+    syncType?: 'event' | 'task';
   }) {
     this.content = content;
 
@@ -77,6 +89,10 @@ export class Todo {
     this.eventId = eventId;
     this.eventHtmlLink = eventHtmlLink;
 
+    this.taskId = taskId;
+    this.taskListId = taskListId;
+    this.syncType = syncType;
+
     this.updated = updated;
   }
 /**
@@ -84,20 +100,23 @@ export class Todo {
    * @param todo - The Todo object to update from.
    */
   public updateFrom(todo: Todo) {
-    if (todo.content) { this.content = todo.content; }
-    if (todo.priority) { this.priority = todo.priority; }
-    if (todo.startDateTime) { this.startDateTime = todo.startDateTime; }
-    if (todo.scheduledDateTime) { this.scheduledDateTime = todo.scheduledDateTime; }
-    if (todo.dueDateTime) { this.dueDateTime = todo.dueDateTime; }
-    if (todo.doneDateTime) { this.doneDateTime = todo.doneDateTime; }
-    if (todo.tags) { this.tags = todo.tags; }
-    if (todo.children) { this.children = todo.children; }
-    if (todo.path) { this.path = todo.path; }
-    if (todo.calUId) { this.calUId = todo.calUId; }
-    if (todo.eventId) { this.eventId = todo.eventId; }
-    if (todo.eventStatus) { this.eventStatus = todo.eventStatus; }
-    if (todo.eventHtmlLink) { this.eventHtmlLink = todo.eventHtmlLink; }
-    if (todo.updated) { this.updated = todo.updated; }
+    if (todo.content !== undefined) { this.content = todo.content; }
+    if (todo.priority !== undefined) { this.priority = todo.priority; }
+    if (todo.startDateTime !== undefined) { this.startDateTime = todo.startDateTime; }
+    if (todo.scheduledDateTime !== undefined) { this.scheduledDateTime = todo.scheduledDateTime; }
+    if (todo.dueDateTime !== undefined) { this.dueDateTime = todo.dueDateTime; }
+    if (todo.doneDateTime !== undefined) { this.doneDateTime = todo.doneDateTime; }
+    if (todo.tags !== undefined) { this.tags = todo.tags; }
+    if (todo.children !== undefined) { this.children = todo.children; }
+    if (todo.path !== undefined) { this.path = todo.path; }
+    if (todo.calUId !== undefined) { this.calUId = todo.calUId; }
+    if (todo.eventId !== undefined) { this.eventId = todo.eventId; }
+    if (todo.eventStatus !== undefined) { this.eventStatus = todo.eventStatus; }
+    if (todo.eventHtmlLink !== undefined) { this.eventHtmlLink = todo.eventHtmlLink; }
+    if (todo.updated !== undefined) { this.updated = todo.updated; }
+    if (todo.taskId !== undefined) { this.taskId = todo.taskId; }
+    if (todo.taskListId !== undefined) { this.taskListId = todo.taskListId; }
+    if (todo.syncType !== undefined) { this.syncType = todo.syncType; }
   }
 
   /**
@@ -111,7 +130,18 @@ export class Todo {
       priority: this.priority,
       tags: this.tags,
       doneDateTime: this.doneDateTime,
+      syncType: this.syncType,
+      taskId: this.taskId,
+      taskListId: this.taskListId,
     });
+  }
+
+  public isEventCandidate(): boolean {
+    return !!this.startDateTime && !!this.dueDateTime;
+  }
+
+  public isTaskCandidate(): boolean {
+    return !this.isEventCandidate() && (!!this.startDateTime || !!this.dueDateTime);
   }
 
   /**
@@ -135,8 +165,7 @@ export class Todo {
     } as calendar_v3.Schema$Event;
 
     let isValidInterval = false;
-    const regDateTime = /(\d{4}-\d{2}-\d{2}T\d+:\d+)/u;
-    if (todo.startDateTime?.match(regDateTime) && todo.dueDateTime?.match(regDateTime)) {
+    if (todo.startDateTime?.match(REG_DATETIME) && todo.dueDateTime?.match(REG_DATETIME)) {
       isValidInterval = true;
     }
 
@@ -146,10 +175,9 @@ export class Todo {
       todoEvent.end!.dateTime = todo.dueDateTime;
       isValidEvent = true;
     } else {
-      const regDate = /(\d{4}-\d{2}-\d{2})/u;
       if (todo.startDateTime) {
-        let startDateMatch = todo.startDateTime.match(regDate);
-        let endDateMatch = todo.dueDateTime?.match(regDate);
+        let startDateMatch = todo.startDateTime.match(REG_DATE);
+        let endDateMatch = todo.dueDateTime?.match(REG_DATE);
         if (startDateMatch) {
           todoEvent.start!.date = startDateMatch[1];
           todoEvent.end!.date = endDateMatch ? endDateMatch[1] : startDateMatch[1];
@@ -240,13 +268,15 @@ export class Todo {
       eventStatus,
       eventHtmlLink,
       updated,
-      tags
+      tags,
+      taskId: undefined,
+      taskListId: undefined,
+      syncType: 'event'
     });
   }
 
-  static isDatetime(datatimeString: string): boolean {
-    const regDateTime = /(\d{4}-\d{2}-\d{2}T)/u;
-    return datatimeString.match(regDateTime) !== null;
+  static isDatetime(datetimeString: string): boolean {
+    return isDatetimeString(datetimeString);
   }
 
   static momentString(momentString: string, emoji: '🛫' | '⌛' | '🗓'): string {
@@ -267,5 +297,94 @@ export class Todo {
       }
     }
     return false;
+  }
+
+  static toGoogleTask(todo: Todo): tasks_v1.Schema$Task {
+    const status = (todo.eventStatus === 'x' || todo.eventStatus === 'X')
+      ? 'completed'
+      : 'needsAction';
+
+    const due = todo.dueDateTime ? toGoogleDueISO(todo.dueDateTime) : undefined;
+    const completed = status === 'completed' ? toGoogleCompletedISO(todo.doneDateTime) : undefined;
+
+    const result: tasks_v1.Schema$Task = {
+      title: todo.content,
+      notes: todo.serializeDescription(),
+      due,
+      status,
+      ...(completed ? { completed } : {}),
+    };
+
+    debug(`[toGoogleTask] content="${todo.content}", blockId="${todo.blockId}", taskId="${todo.taskId}", eventStatus="${todo.eventStatus}", doneDateTime="${todo.doneDateTime}" → status="${status}", due="${due}", completed="${completed}"`);
+    return result;
+  }
+
+  static fromGoogleTask(taskMeta: tasks_v1.Schema$Task): Todo {
+    let content = taskMeta.title;
+    let taskId = taskMeta.id;
+    let taskListId = '@default';
+    let eventStatus = taskMeta.status === 'completed' ? 'x' : ' ';
+    let blockId: string | undefined = undefined;
+    let priority: string | undefined = undefined;
+    let doneDateTime: string | undefined = undefined;
+    let startDateTime: null | string = null;
+    let dueDateTime: null | string = null;
+    let tags: string[] = [];
+    let updated: string | undefined = undefined;
+
+    debug(`[fromGoogleTask] raw: id="${taskMeta.id}", title="${content}", status="${taskMeta.status}", due="${taskMeta.due || ''}", notes="${taskMeta.notes ? taskMeta.notes.substring(0, 300) : '(none)'}"`);
+
+    if (taskMeta.notes) {
+      try {
+        const parsed = JSON.parse(taskMeta.notes);
+        blockId = parsed.blockId;
+        priority = parsed.priority;
+        if (taskMeta.status !== 'completed' && parsed.eventStatus) {
+          eventStatus = parsed.eventStatus;
+        }
+        tags = parsed.tags || [];
+        doneDateTime = parsed.doneDateTime;
+        if (parsed.taskId) {
+          debug(`[fromGoogleTask] recovered taskId from notes: "${parsed.taskId}" (API id="${taskId}")`);
+        }
+        if (parsed.taskListId) {
+          taskListId = parsed.taskListId;
+        }
+        debug(`[fromGoogleTask] parsed notes: blockId="${blockId}", eventStatus="${eventStatus}", priority="${priority}", syncType="${parsed.syncType || '(none)'}", notesTaskId="${parsed.taskId || '(none)'}"`);
+      } catch (e) {
+        debug(`[fromGoogleTask] JSON parse error on task notes: ${e}`);
+      }
+    } else {
+      debug(`[fromGoogleTask] task="${content}" has no notes, blockId will be undefined`);
+    }
+
+    if (taskMeta.due) {
+      dueDateTime = window.moment(taskMeta.due).format('YYYY-MM-DD');
+    }
+
+    if (taskMeta.updated) {
+      updated = window.moment(taskMeta.updated).format('YYYY-MM-DD[T]HH:mm:ssZ');
+    }
+
+    if (taskMeta.completed) {
+      doneDateTime = window.moment(taskMeta.completed).format('YYYY-MM-DD');
+    }
+
+    debug(`[fromGoogleTask] result: content="${content}", blockId="${blockId}", taskId="${taskId}", taskListId="${taskListId}", eventStatus="${eventStatus}", dueDateTime="${dueDateTime}"`);
+
+    return new Todo({
+      content,
+      priority,
+      blockId,
+      startDateTime,
+      dueDateTime,
+      doneDateTime,
+      eventStatus,
+      updated,
+      tags,
+      taskId,
+      taskListId,
+      syncType: 'task',
+    });
   }
 }

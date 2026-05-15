@@ -12,6 +12,7 @@ export type TodoDetails = Writeable<
   Pick<
     Todo,
     | 'blockId'
+    | 'taskId'
     | 'content'
     | 'priority'
     | 'tags'

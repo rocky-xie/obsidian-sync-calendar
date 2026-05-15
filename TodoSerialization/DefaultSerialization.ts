@@ -1,5 +1,6 @@
 import type { Todo } from "TodoSerialization/Todo";
 import type { TodoDetails, TodoSerializer } from ".";
+import { debug } from 'lib/DebugLog';
 
 /* Interface describing the symbols that {@link DefaultTodoSerializer}
  * uses to serialize and deserialize todos.
@@ -17,6 +18,7 @@ export interface DefaultTodoSerializerSymbols {
   readonly TodoFormatRegularExpressions: {
     priorityRegex: RegExp;
     blockIdRegex: RegExp;
+    taskIdRegex: RegExp;
     createdDateRegex: RegExp;
     scheduledDateRegex: RegExp;
     scheduledDateTimeRegex: RegExp;
@@ -44,6 +46,7 @@ export const DEFAULT_SYMBOLS: DefaultTodoSerializerSymbols = {
     // removed from the end until none are left.
     priorityRegex: /([⏫🔼🔽])$/u,
     blockIdRegex: /\^([0-9a-zA-Z]*)$/u,
+    taskIdRegex: /📋([^\s]+)$/u,
     createdDateRegex: /➕ *(\d{4}-\d{2}-\d{2})$/u,
     startDateRegex: /🛫 *(\d{4}-\d{2}-\d{2})$/u,
     startDateTimeRegex: /🛫 *(\d{4}-\d{2}-\d{2}@\d+:\d+)$/u,
@@ -166,15 +169,19 @@ export class DefaultTodoSerializer implements TodoSerializer {
       }
     }
 
-    if (todo.doneDateTime) {
+    const isCompleted = (todo.eventStatus === 'x' || todo.eventStatus === 'X');
+    if (todo.doneDateTime && isCompleted) {
       components.push('✅ ' + todo.doneDateTime);
     }
 
+    // 📋 taskId 不再写入笔记行，只保存在Google Task的notes JSON中
+    // 仅通过blockId匹配，减少笔记视觉干扰
     if (todo.blockId) {
       components.push(`^${todo.blockId}`);
     }
 
-    // debugger;
+    debug(`[serialize] content="${todo.content}", taskId="${todo.taskId || '(not written)'}", blockId="${todo.blockId}", syncType="${todo.syncType}", eventStatus="${todo.eventStatus}"`);
+
     return components.join(' ');
   }
 
@@ -187,12 +194,12 @@ export class DefaultTodoSerializer implements TodoSerializer {
   public deserialize(line: string): TodoDetails {
     const { TodoFormatRegularExpressions } = this.symbols;
 
-    // Keep matching and removing special strings from the end of the
-    // description in any order. The loop should only run once if the
-    // strings are in the expected order after the description.
+    debug(`[deserialize] raw line: "${line}"`);
+
     let matched: boolean;
     let priority: null | string = null;
     let blockId: null | string = null;
+    let taskId: null | string = null;
     let doneDateTime: null | string = null;
     let startDateTime: null | string = null;
     let scheduledDateTime: null | string = null;
@@ -220,6 +227,14 @@ export class DefaultTodoSerializer implements TodoSerializer {
       if (blockIdMatch !== null) {
         blockId = blockIdMatch[1];
         line = line.replace(TodoFormatRegularExpressions.blockIdRegex, '').trim();
+        matched = true;
+      }
+
+      const taskIdMatch = line.match(TodoFormatRegularExpressions.taskIdRegex);
+      if (taskIdMatch !== null) {
+        taskId = taskIdMatch[1];
+        line = line.replace(TodoFormatRegularExpressions.taskIdRegex, '').trim();
+        debug(`[deserialize] found taskId="${taskId}", remaining line="${line}"`);
         matched = true;
       }
 
@@ -309,15 +324,12 @@ export class DefaultTodoSerializer implements TodoSerializer {
 
     let tags = trailingTags.match(TodoRegularExpressions.hashTags)?.map((tag) => tag.trim()) ?? [];
 
-    // Add back any trailing tags to the description. We removed them so we can parse the rest of the
-    // components but now we want them back.
-    // The goal is for a todo of them form 'Do something #tag1 (due) tomorrow #tag2 (start) today'
-    // to actually have the description 'Do something #tag1 #tag2'
-    // if (trailingTags.length > 0) line += ' ' + trailingTags;
+    debug(`[deserialize] result: content="${line}", blockId="${blockId}", taskId="${taskId}", startDateTime="${startDateTime}", scheduledDateTime="${scheduledDateTime}", dueDateTime="${dueDateTime}", doneDateTime="${doneDateTime}", eventStatus not available here`);
 
     return {
       content: line,
       blockId: blockId,
+      taskId: taskId,
       priority: priority,
       tags,
       startDateTime,

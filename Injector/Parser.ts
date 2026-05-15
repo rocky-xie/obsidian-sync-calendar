@@ -29,13 +29,7 @@ export class ParsingError extends Error {
  * @throws ParsingError if the raw string cannot be parsed
  */
 export function parseQuery(raw: string): Query {
-  let obj: any;
-
-  try {
-    obj = YAML.parse(raw);
-  } catch (e) {
-    throw e;
-  }
+  const obj: any = YAML.parse(raw);
 
   return parseObject(obj);
 }

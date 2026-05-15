@@ -5,6 +5,7 @@
 	import type { Query } from "Injector/Query";
 	import { Todo } from "TodoSerialization/Todo";
 	import type { MainSynchronizer } from "Syncs/MainSynchronizer";
+	import { FETCH_TIMEOUT_MS } from "lib/Constants";
 
 	import ErrorDisplay from "./ErrorDisplay.svelte";
 	import TaskRenderer from "./TaskRenderer.svelte";
@@ -114,7 +115,7 @@
 						"Timeout occurred when fetching from Google Calendar!\nCheck your connection and proxy settings, then restart Obsidian."
 					)
 				);
-			}, 4000);
+			}, FETCH_TIMEOUT_MS);
 		});
 
 		await Promise.race([fetchPromise, timeoutPromise])
